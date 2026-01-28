@@ -60,6 +60,60 @@ const WorldMap: React.FC<WorldMapProps> = ({ onSelect, onCollectXP, isMuted }) =
       collected: false
     }))
   );
+  // 📱 Mobile tilt control
+const [gyroEnabled, setGyroEnabled] = useState(false);
+
+const gyroRef = useRef({
+  throttle: 0, // -1 back ←→ +1 forward
+  steer:0
+});
+
+const isMobile =
+  'ontouchstart' in window ||
+  navigator.maxTouchPoints > 0;
+
+const enableGyro = async () => {
+  if (
+    typeof DeviceOrientationEvent !== 'undefined' &&
+    // @ts-ignore (iOS)
+    typeof DeviceOrientationEvent.requestPermission === 'function'
+  ) {
+    // @ts-ignore
+    const permission = await DeviceOrientationEvent.requestPermission();
+    if (permission !== 'granted') return;
+  }
+  setGyroEnabled(true);
+};
+useEffect(() => {
+  if (!gyroEnabled) return;
+
+  const handleOrientation = (e: DeviceOrientationEvent) => {
+  const beta = e.beta ?? 0;   // forward / back
+  const gamma = e.gamma ?? 0; // left / right
+
+  // Normalize + invert beta
+  let throttle = -beta / 30;
+  let steer = gamma / 45;
+
+  // Clamp
+  throttle = Math.max(-1, Math.min(1, throttle));
+  steer = Math.max(-1, Math.min(1, steer));
+
+  // Dead-zone
+  if (Math.abs(throttle) < 0.1) throttle = 0;
+  if (Math.abs(steer) < 0.1) steer = 0;
+
+  gyroRef.current.throttle = throttle;
+  gyroRef.current.steer = steer;
+};
+
+
+  window.addEventListener('deviceorientation', handleOrientation);
+  return () =>
+    window.removeEventListener('deviceorientation', handleOrientation);
+}, [gyroEnabled]);
+
+
 
   const [effects, setEffects] = useState<CollectionEffect[]>([]);
   const effectIdCounter = useRef(0);
@@ -84,6 +138,16 @@ const WorldMap: React.FC<WorldMapProps> = ({ onSelect, onCollectXP, isMuted }) =
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
+useEffect(() => {
+  if (
+    isMobile &&
+    typeof DeviceOrientationEvent !== 'undefined' &&
+    // @ts-ignore
+    typeof DeviceOrientationEvent.requestPermission !== 'function'
+  ) {
+    setGyroEnabled(true);
+  }
+}, []);
 
   useEffect(() => {
     isMutedRef.current = isMuted;
@@ -123,15 +187,44 @@ const WorldMap: React.FC<WorldMapProps> = ({ onSelect, onCollectXP, isMuted }) =
       // keep original tuning roughly consistent with old "per-frame" constants
       const factor = dt * 60;
 
-      const isTurningLeft = keys.current['arrowleft'] || keys.current['a'];
-      const isTurningRight = keys.current['arrowright'] || keys.current['d'];
-      const isPressingForward = keys.current['arrowup'] || keys.current['w'];
-      const isPressingBackward = keys.current['arrowdown'] || keys.current['s'];
+//       const isTurningLeft =
+//   keys.current['arrowleft'] ||
+//   keys.current['a'] ||
+//   gyroRef.current.steer < -0.2;
+
+// const isTurningRight =
+//   keys.current['arrowright'] ||
+//   keys.current['d'] ||
+//   gyroRef.current.steer > 0.2;
+
+      const keyboardThrottle =
+  (keys.current['arrowup'] || keys.current['w'] ? 1 : 0) -
+  (keys.current['arrowdown'] || keys.current['s'] ? 1 : 0);
+
+const throttleInput =
+  keyboardThrottle !== 0
+    ? keyboardThrottle
+    : gyroRef.current.throttle;
+
+
+const throttle = Math.max(-1, Math.min(1, throttleInput));
+
+const isPressingForward = throttle > 0.1;
+const isPressingBackward = throttle < -0.1;
 
       let newRot = rotationRef.current;
       const turnSpeedPerFrame = 4;
-      if (isTurningLeft) newRot -= turnSpeedPerFrame * factor;
-      if (isTurningRight) newRot += turnSpeedPerFrame * factor;
+      // steering strength (gyro + keyboard)
+const steerInput =
+  (keys.current['arrowleft'] || keys.current['a'] ? -1 : 0) +
+  (keys.current['arrowright'] || keys.current['d'] ? 1 : 0) +
+  gyroRef.current.steer;
+
+// clamp
+const steer = Math.max(-1, Math.min(1, steerInput));
+
+// apply rotation
+newRot += steer * turnSpeedPerFrame * factor;
 
       let accel = 0;
       if (isPressingForward) accel = 0.05 * factor;
@@ -151,7 +244,8 @@ const WorldMap: React.FC<WorldMapProps> = ({ onSelect, onCollectXP, isMuted }) =
 
       // Drift model: preserve forward speed, damp sideways slip.
       // When turning at speed, reduce forward damping a bit (feels like momentum carry).
-      const turning = isTurningLeft || isTurningRight;
+      const turning = Math.abs(steer) > 0.05;
+
       const speed0 = Math.sqrt(vX0 ** 2 + vY0 ** 2);
 
       const forwardFrictionPerFrame = turning && speed0 > 0.2 ? 0.992 : 0.985; // closer to 1 = less slowdown
@@ -175,9 +269,14 @@ const WorldMap: React.FC<WorldMapProps> = ({ onSelect, onCollectXP, isMuted }) =
       let nextX = posRef.current.x + newVelX;
       let nextY = posRef.current.y + newVelY;
 
-      nextX = Math.max(2, Math.min(98, nextX));
-      nextY = Math.max(2, Math.min(98, nextY));
-
+      nextX = Math.max(5, Math.min(95, nextX));
+      nextY = Math.max(5, Math.min(95, nextY));
+      if (nextX <= 5 || nextX >= 95) {
+  newVelX = 0;
+}
+if (nextY <= 5 || nextY >= 95) {
+  newVelY = 0;
+}
       posRef.current = { x: nextX, y: nextY };
       rotationRef.current = newRot;
       velocityRef.current = { x: newVelX, y: newVelY };
@@ -258,6 +357,8 @@ const WorldMap: React.FC<WorldMapProps> = ({ onSelect, onCollectXP, isMuted }) =
   }, []);
 
   return (
+
+    
     <div className="relative w-full h-screen overflow-hidden bg-[#0a0a0c] cursor-crosshair">
       {/* Background Grid */}
       <div className="absolute inset-0 opacity-10" 
@@ -461,12 +562,28 @@ const WorldMap: React.FC<WorldMapProps> = ({ onSelect, onCollectXP, isMuted }) =
           >
              <span>Navigate to a sector</span>
              <span className="w-px h-3 bg-white/10" />
-             <span className="text-indigo-400 animate-pulse">WASD to Drive</span>
+             <span className="text-indigo-400 animate-pulse">
+  {isMobile ? 'TILT PHONE FORWARD / BACK TO DRIVE' : 'WASD TO DRIVE'}
+</span>
+
           </motion.div>
         </div>
       )}
+      {isMobile && !gyroEnabled && (
+  <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50">
+    <button
+      onClick={enableGyro}
+      className="px-6 py-3 glass rounded-xl border border-indigo-500 text-indigo-400 font-bold tracking-widest"
+    >
+      ENABLE MOTION CONTROL
+    </button>
+  </div>
+)}
     </div>
+
   );
+  
+
 };
 
 export default WorldMap;

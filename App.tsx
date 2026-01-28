@@ -99,6 +99,39 @@ const App: React.FC = () => {
     playSfx('hover', isMuted);
     setHasStarted(true);
   };
+useEffect(() => {
+  const handler = (e: DeviceOrientationEvent) => {
+    console.log(
+      'beta:',
+      e.beta,
+      'gamma:',
+      e.gamma,
+      'alpha:',
+      e.alpha
+    );
+  };
+
+  window.addEventListener('deviceorientation', handler, true);
+
+  return () =>
+    window.removeEventListener('deviceorientation', handler, true);
+}, []);
+useEffect(() => {
+  const handler = (e: DeviceOrientationEvent) => {
+    console.log(
+      'RAW GYRO EVENT → ',
+      'beta:', e.beta,
+      'gamma:', e.gamma,
+      'alpha:', e.alpha
+    );
+  };
+
+  window.addEventListener('deviceorientation', handler, true);
+
+  return () => {
+    window.removeEventListener('deviceorientation', handler, true);
+  };
+}, []);
 
   const SystemControls = () => (
     <div className="glass px-6 py-2 rounded-full flex items-center gap-6 text-[10px] font-bold tracking-widest text-gray-500 uppercase">
